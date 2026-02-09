@@ -1,37 +1,46 @@
 import SwiftUI
 import SwiftData
 
-// 1. Partikül Modeli (Aynı dosyada en üste ekleyebilirsin)
+// 1. Partikül Modeli
 struct EnergyParticle: Identifiable {
     let id = UUID()
     var x: CGFloat
     var y: CGFloat
     let speed: CGFloat
-    let size: CGFloat
+    // size artık tek bir pikselin boyutu olacak, tüm şeklin değil.
 }
 
+// 2. ŞİMŞEK DESENİ (5x7 Piksel Grid)
+// 1: Boya, 0: Boş geç
+let boltPattern: [[Int]] = [
+    [0, 0, 1, 1, 0], // Üst kısım
+    [0, 1, 1, 0, 0],
+    [1, 1, 1, 1, 1], // Orta flaş
+    [0, 0, 0, 1, 1],
+    [0, 0, 1, 1, 0],
+    [0, 1, 1, 0, 0],
+    [0, 1, 0, 0, 0]  // Alt uç
+]
+
 struct PixelStyleView: View {
-    // iOS 17 Observation Framework uyumlu
     @Bindable var viewModel: TimerViewModel
     var modelContext: ModelContext
     
-    // MARK: - PARTİKÜL STATE'LERİ (YENİ)
+    // MARK: - PARTİKÜL STATE
     @State private var particles: [EnergyParticle] = []
+    let particlePixelSize: CGFloat = 3 // Şimşeği oluşturan her minik karenin boyutu
     
     // MARK: - RETRO AYARLAR
-    let totalCells = 8 // Bataryadaki toplam kutu sayısı
+    let totalCells = 8
+    let retroGreen = Color(red: 0.0, green: 0.8, blue: 0.2)
+    let retroGray = Color(white: 0.8)
+    let outlineColor = Color.black
     
-    // 8-bit Renk Paleti
-    let retroGreen = Color(red: 0.0, green: 0.8, blue: 0.2) // Parlak piksel yeşili
-    let retroGray = Color(white: 0.8) // Sönük kutu rengi
-    let outlineColor = Color.black // Kalın siyah çizgiler için
-    
-    // Zaman ve Hesaplama
-    var minute: Int { viewModel.secondsElapsed / 60 }
-    var progress: CGFloat { CGFloat(viewModel.secondsElapsed % 60) / 60.0 }
-    
+    var minute: Int { viewModel.totalSecondsElapsed / 60 }
+    var progress: CGFloat { CGFloat(viewModel.totalSecondsElapsed % 60) / 60.0 }
+
     var cellsFilledCount: Int {
-        viewModel.secondsElapsed > 0 ? Int(progress * CGFloat(totalCells)) : 0
+        viewModel.totalSecondsElapsed > 0 ? Int(progress * CGFloat(totalCells)) : 0
     }
     
     var body: some View {
@@ -39,81 +48,84 @@ struct PixelStyleView: View {
             
             // MARK: - BATARYA GÖVDESİ
             VStack(spacing: 2) {
-                // 1. Batarya Kutup Başı
                 Rectangle()
                     .fill(outlineColor)
                     .frame(width: 60, height: 15)
                 
-                // 2. Ana Gövde
                 ZStack {
-                    // A) Kalın Dış Çerçeve
+                    // Dış Çerçeve
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(outlineColor, lineWidth: 8)
                         .background(Color.white)
                         .frame(width: 160, height: 300)
                     
-                    // B) İçerik Alanı (Hücreler + Partiküller)
+                    // İçerik Alanı
                     ZStack {
-                        // B1. Hücreler (Senin Orijinal Kodun)
+                        // B1. Hücreler (Sabit Kalan Kısım)
                         VStack(spacing: 4) {
                             ForEach((0..<totalCells).reversed(), id: \.self) { index in
                                 let isCellActive = index < cellsFilledCount
-                                
                                 Rectangle()
                                     .fill(isCellActive ? retroGreen : retroGray)
                                     .shadow(color: isCellActive ? retroGreen.opacity(0.5) : .clear, radius: 4)
                                     .frame(height: 30)
-                                    .overlay(
-                                        Rectangle().stroke(outlineColor, lineWidth: 2)
-                                    )
+                                    .overlay(Rectangle().stroke(outlineColor, lineWidth: 2))
                             }
                         }
                         
-                        // B2. PARTİKÜL EFEKTİ (YENİ KATMAN)
-                        // Hücrelerin üzerine, çerçevenin içine çiziyoruz
+                        // B2. ŞİMŞEK EFEKTİ (GÜNCELLENDİ)
                         GeometryReader { geometry in
                             let size = geometry.size
-                            
                             TimelineView(.animation) { timeline in
                                 Canvas { context, size in
+                                    // Her partikül için döngü
                                     for particle in particles {
-                                        let particleRect = CGRect(
-                                            x: particle.x,
-                                            y: particle.y,
-                                            width: particle.size,
-                                            height: particle.size
-                                        )
-                                        // Beyaz, hafif şeffaf enerji baloncukları
-                                        context.fill(Path(particleRect), with: .color(.white.opacity(0.7)))
+                                        
+                                        // Şimşek desenini çizme döngüsü (Nested Loop)
+                                        for row in 0..<boltPattern.count {
+                                            for col in 0..<boltPattern[row].count {
+                                                // Eğer desende '1' varsa oraya piksel koy
+                                                if boltPattern[row][col] == 1 {
+                                                    // Konumu hesapla: Partikülün ana konumu + desendeki sıra/sütun ofseti
+                                                    let pixelX = particle.x + CGFloat(col) * particlePixelSize
+                                                    let pixelY = particle.y + CGFloat(row) * particlePixelSize
+                                                    
+                                                    let pixelRect = CGRect(
+                                                        x: pixelX,
+                                                        y: pixelY,
+                                                        width: particlePixelSize,
+                                                        height: particlePixelSize
+                                                    )
+                                                    // RETRO YEŞİL RENK İLE BOYA
+                                                    context.fill(Path(pixelRect), with: .color(retroGreen))
+                                                }
+                                            }
+                                        }
                                     }
                                 }
-                                .onChange(of: timeline.date) { _, _ in // iOS 17 Syntax
+                                .onChange(of: timeline.date) { _, _ in
                                     updateParticles(in: size, isRunning: viewModel.isRunning)
                                 }
                             }
                         }
-                        // Partiküllerin hücrelerin dışına taşmasını engelle
                         .clipShape(Rectangle())
-                        
                     }
-                    .padding(12) // Dış çerçeve ile iç alan arasındaki boşluk
+                    .padding(12)
                     .frame(width: 160, height: 300)
                 }
             }
             
-            // MARK: - BİLGİ ALANI
+            // MARK: - BİLGİ ALANI ve BUTON (Değişmedi)
             VStack(spacing: 5) {
                 Text("\(minute)")
                     .font(.system(size: 80, weight: .heavy, design: .monospaced))
                     .foregroundColor(outlineColor)
-                
                 Text("DAKİKA")
                     .font(.system(size: 16, weight: .bold, design: .monospaced))
                     .foregroundColor(outlineColor.opacity(0.6))
                     .tracking(4)
             }
             
-            // MARK: - BUTON
             Button(action: {
                 withAnimation(.spring()) { viewModel.toggleTimer(context: modelContext) }
             }) {
@@ -124,52 +136,38 @@ struct PixelStyleView: View {
                     .background(viewModel.isRunning ? Color.red : outlineColor)
                     .cornerRadius(4)
                     .shadow(color: outlineColor, radius: 0, x: 4, y: 4)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 2)
-                            .padding(2)
-                    )
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 2).padding(2))
             }
         }
     }
     
-    // MARK: - PARTİKÜL FİZİĞİ (UPDATE LOOP)
+    // MARK: - PARTİKÜL FİZİĞİ
     func updateParticles(in size: CGSize, isRunning: Bool) {
-        // Sayaç duruyorsa partikülleri temizle
         guard isRunning else {
             if !particles.isEmpty { particles.removeAll() }
             return
         }
         
-        // 1. Hareket
         for i in particles.indices {
-            particles[i].y -= particles[i].speed // Yukarı çık
+            particles[i].y -= particles[i].speed
         }
         
-        // 2. Temizlik (Ekranın tepesinden çıkanları sil)
-        particles.removeAll { $0.y < -10 }
+        // Şimşek boyutu kadar yukarı çıkınca sil (yaklaşık 7 satır * 3 piksel = 21)
+        particles.removeAll { $0.y < -30 }
         
-        // 3. Spawn (Yeni partikül yaratma)
-        // %15 şansla yeni partikül (Piksel hissiyatı için düşük tuttum)
-        if Int.random(in: 0...100) < 15 {
-            let pixelScale: CGFloat = 4 // Partikül boyutu
-            
-            // Rastgele X konumu (Grid'e oturtulmuş)
-            let randomX = CGFloat(Int.random(in: 0...Int(size.width)))
-            let snappedX = randomX - (randomX.truncatingRemainder(dividingBy: pixelScale))
+        // Spawn oranını biraz düşürdüm çünkü şimşekler daha büyük ve dikkat çekici
+        if Int.random(in: 0...100) < 2 {
+            let gridSize: CGFloat = 4 // Grid'e oturtma hassasiyeti
+            let randomX = CGFloat(Int.random(in: 0...Int(size.width - 20))) // Sağdan taşmasın diye -20
+            let snappedX = randomX - (randomX.truncatingRemainder(dividingBy: gridSize))
             
             let newParticle = EnergyParticle(
                 x: snappedX,
-                y: size.height, // En alttan başla
-                speed: CGFloat(Int.random(in: 2...5)), // Rastgele hız
-                size: pixelScale
+                y: size.height,
+                speed: CGFloat(Int.random(in: 1...2)),
             )
             particles.append(newParticle)
         }
     }
 }
 
-// Önizleme için Mock ViewModel (Sende zaten gerçek veri var, burası test için)
-#Preview {
-    // Not: Gerçek projede kendi ViewModel'ını koyacaksın
-    PixelStyleView(viewModel: TimerViewModel(), modelContext: try! ModelContainer(for: FocusSession.self).mainContext)
-}

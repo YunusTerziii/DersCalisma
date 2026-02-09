@@ -1,76 +1,86 @@
-//
-//  TimerView.swift
-//  DersCalisma
-//
-//  Created by Yunus Terzi on 31.01.2026.
-//
 import SwiftUI
 import SwiftData
 
 struct TimerView: View {
     @Environment(\.modelContext) private var modelContext
+    
+    // 1. Ayarları Çekiyoruz
+    @Query private var settings: [UserSettings]
+    
+    // 2. ViewModel: Tüm sayaç ve aktivite verisi burada
     @State private var viewModel = TimerViewModel()
     
-    // Cozy Renk Paleti
-    let softOrange = Color.orange
-    let warmBeige = Color(red: 0.98, green: 0.96, blue: 0.92)
+    // 3. Mağaza ekranı kontrolü
+    @State private var showStore = false
     
     var body: some View {
-        ZStack {
-            warmBeige.ignoresSafeArea()
-            
-            VStack(spacing: 50) {
-                ZStack {
-                    // Sabit Arka Plan Halkası
-                    Circle()
-                        .stroke(Color.gray.opacity(0.1), lineWidth: 20)
-                        .frame(width: 280, height: 280)
+        NavigationStack {
+            VStack {
+                // Ayarlar yüklendi mi diye kontrol et
+                if let userSettings = settings.first,
+                   let style = TimerStyle(rawValue: userSettings.selectedStyleID) {
                     
-                    // Hareketli Dış Çember (60 saniyede bir tam tur)
-                    Circle()
-                        .trim(from: 0, to: CGFloat(viewModel.secondsElapsed % 60) / 60.0 == 0 && viewModel.secondsElapsed > 0 ? 1.0 : CGFloat(viewModel.secondsElapsed % 60) / 60.0)
-                        .stroke(
-                            AngularGradient(gradient: Gradient(colors: [softOrange.opacity(0.5), softOrange]), center: .center),
-                            style: StrokeStyle(lineWidth: 20, lineCap: .round)
-                        )
-                        .frame(width: 280, height: 280)
-                        .rotationEffect(.degrees(-90))
-                        // Akıcı dönüş animasyonu
-                        .animation(.linear(duration: 1.0), value: viewModel.secondsElapsed)
-                        .shadow(color: softOrange.opacity(0.3), radius: 10, x: 0, y: 5)
+                    // --- 1. YENİ EKLENEN KISIM: AKTİVİTE SEÇİCİ ---
+                    // Temalar değişse bile bu üstte sabit kalır.
+                    ActivitySelectorView(viewModel: viewModel)
+                        .padding(.top, 10)
+                        .padding(.bottom, 10) // Temalarla arasına biraz boşluk
                     
-                    // Süre Metni (Sadece Dakika Gösterimi)
-                    VStack {
-                        Text("\(viewModel.secondsElapsed / 60)")
-                            .font(.system(size: 80, weight: .bold, design: .rounded))
-                        Text("DAKİKA")
-                            .font(.caption).bold()
-                            .tracking(3)
+                    // --- 2. TEMA DEĞİŞTİRİCİ (MEVCUT KODUN) ---
+                    // Kalan boşluğu doldurması için Spacer veya frame ayarı gerekebilir
+                    // ama şimdilik senin yapını koruyoruz.
+                    switch style {
+                    case .circular:
+                        CircularStyleView(viewModel: viewModel, modelContext: modelContext)
+                    case .hourglass:
+                        HourglassStyleView(viewModel: viewModel, modelContext: modelContext)
+                    case .pixel:
+                        PixelStyleView(viewModel: viewModel, modelContext: modelContext)
                     }
-                    .foregroundColor(.brown)
-                }
-                
-                // Başlat/Bitir Butonu
-                Button(action: {
-                    withAnimation(.spring()) {
-                        viewModel.toggleTimer(context: modelContext)
-                    }
-                }) {
-                    Text(viewModel.isRunning ? "Oturumu Bitir" : "Odaklanmaya Başla")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(width: 240, height: 65)
-                        .background(viewModel.isRunning ? Color.red.opacity(0.6) : softOrange)
-                        .clipShape(Capsule())
-                        .shadow(radius: 10)
+                    
+                    Spacer() // Temaları yukarı itmemesi için alta boşluk
+                    
+                } else {
+                    // Yükleniyor ekranı
+                    ProgressView("Yükleniyor...")
                 }
             }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: { showStore = true }) {
+                        Label("Mağaza", systemImage: "storefront.fill")
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+            .sheet(isPresented: $showStore) {
+                StoreView()
+            }
+            .onAppear {
+                initializeSettingsIfNeeded()
+            }
+            // --- 3. YENİ EKLENEN KISIM: ÖZET POPUP'I ---
+            // ViewModel içindeki showRewardPopup true olduğunda çalışır
+            .alert("Oturum Özeti", isPresented: $viewModel.showRewardPopup) {
+                Button("Harika!", role: .cancel) { }
+            } message: {
+                Text(viewModel.summaryMessage)
+            }
         }
-        .navigationTitle("Odak Vakti")
+    }
+    
+    // Varsayılan ayarları oluşturma (Aynı kaldı)
+    private func initializeSettingsIfNeeded() {
+        if settings.isEmpty {
+            let defaultSettings = UserSettings()
+            modelContext.insert(defaultSettings)
+            try? modelContext.save()
+        }
     }
 }
+
+// Önizleme
 #Preview {
     TimerView()
-        .modelContainer(for: FocusSession.self, inMemory: true)
+        .modelContainer(for: [FocusSession.self, UserSettings.self, Activity.self], inMemory: true)
 }
-
